@@ -51,13 +51,18 @@ The report contains topologically ordered rows with source step ordinal and
 pointer, dependency ordinals, fixed kind/compatibility/rollback/checkpoint and
 evidence-need codes, an owner source pointer, and a decision source pointer or
 `null`. It never emits opaque IDs, owner/reviewer labels, arbitrary input text,
-or an unkeyed hash of any of them. Ties in the dependency graph use original
-source order. Findings sort by UTF-16 code unit over file, pointer and rule ID.
+or an unkeyed hash of any of them. Each adjacent cutover order adds a
+sequencing edge to the dependency graph, so independent cutovers exported in
+reverse source order still appear in cutover order. Remaining unconstrained
+ties use original source order. Findings sort by UTF-16 code unit over file,
+pointer and rule ID.
 
 All cutover steps require distinct, contiguous `cutoverOrder` values 1…K. A
-dependency from an earlier cutover order to a later one, a cycle, a missing
-dependency, or duplicate/missing cutover order makes sequencing incomplete;
-the tool does not pick an arbitrary order. A complete plan with every required
+dependency from an earlier cutover order to a later one, including through
+non-cutover steps, creates a cycle against those ordering edges and makes
+sequencing incomplete. Any other cycle, missing dependency or duplicate/missing
+cutover order is also incomplete; the tool does not pick an arbitrary order.
+A complete plan with every required
 decision recorded as approved is `pass`/exit 0. An explicit recorded rejection
 on otherwise complete evidence is `fail`/exit 1. Missing owner, review record,
 rollback/checkpoint/evidence declaration or ambiguous sequencing is
@@ -79,6 +84,7 @@ Defaults: 1,048,576 bytes, 64 steps, 64 decisions, 16 dependencies per step,
 The library receives an injectable finite, monotone clock. The test process
 actively denies network APIs, and source contains no Git, shell, browser,
 database or remote adapter. Tests begin with a correctly specified plan,
-then prove destructive-review, ownership, cutover, unknown/limit, privacy,
-confinement, stream and deterministic-output behavior. Removal mutations must
+then prove destructive-review, ownership, independent reverse-source and
+indirectly contradictory cutover order, unknown/limit, privacy, confinement,
+stream and deterministic-output behavior. Removal mutations must
 make each advertised guarantee's named test fail.
