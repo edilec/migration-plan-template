@@ -24,7 +24,7 @@ a `decisions` array. Every step has exactly these fields:
 | `compatibility` | `dual-run`, `backward-compatible`, or `not-applicable` |
 | `rollback` | `restore`, `reverse-switch`, or `not-required` |
 | `checkpoint` | `after` or `before-and-after` |
-| `evidenceNeeds` | nonempty, unique subset of `backup`, `compatibility-test`, `data-count`, `metric-baseline`, `rollback-test`, `operator-review` |
+| `evidenceNeeds` | nonempty, unique subset of `backup`, `compatibility-test`, `data-count`, `metric-baseline`, `rollback-test`, `operator-review`, `dry-run`, `access-review` |
 | `destructive` | explicit boolean; `cutover` and `retire` must be `true` |
 | `cutoverOrder` | decimal string `"1"`–`"64"` for `cutover`; otherwise `null` |
 
@@ -62,6 +62,8 @@ dependency from an earlier cutover order to a later one, including through
 non-cutover steps, creates a cycle against those ordering edges and makes
 sequencing incomplete. Any other cycle, missing dependency or duplicate/missing
 cutover order is also incomplete; the tool does not pick an arbitrary order.
+If graph evidence is missing or cyclic, `plan` is empty rather than presenting
+a partial sequence as settled; located findings retain the reasons.
 A complete plan with every required
 decision recorded as approved is `pass`/exit 0. An explicit recorded rejection
 on otherwise complete evidence is `fail`/exit 1. Missing owner, review record,
@@ -78,7 +80,7 @@ CLI configuration exits 2 with empty stdout and a fixed stderr diagnostic.
 Unreadable, invalid UTF-8 or malformed named input exits 2 with a located
 `incomplete` JSON report. `--json` suppresses the fixed human summary only.
 
-Defaults: 1,048,576 bytes, 64 steps, 64 decisions, 16 dependencies per step,
+Defaults: 1,048,576 bytes, 128 steps, 64 decisions, 16 dependencies per step,
 6 evidence codes per step, 32 JSON depth levels, 50,000 JSON nodes, and a
 2,000-millisecond analysis deadline. Exactly N is legal; N+1 is incomplete.
 The library receives an injectable finite, monotone clock. The test process
