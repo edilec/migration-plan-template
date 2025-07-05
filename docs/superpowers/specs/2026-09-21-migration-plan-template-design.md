@@ -80,7 +80,7 @@ CLI configuration exits 2 with empty stdout and a fixed stderr diagnostic.
 Unreadable, invalid UTF-8 or malformed named input exits 2 with a located
 `incomplete` JSON report. `--json` suppresses the fixed human summary only.
 
-Defaults: 1,048,576 bytes, 128 steps, 64 decisions, 16 dependencies per step,
+Defaults: 1,048,576 bytes, 128 steps, 96 decisions, 16 dependencies per step,
 6 evidence codes per step, 32 JSON depth levels, 50,000 JSON nodes, and a
 2,000-millisecond analysis deadline. Exactly N is legal; N+1 is incomplete.
 The library receives an injectable finite, monotone clock. The test process

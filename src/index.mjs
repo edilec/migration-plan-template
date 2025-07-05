@@ -1,19 +1,69 @@
+import { validateRequirements } from './validation.mjs';
+
 export const TOOL_ID = 'migration-plan-template';
 export class ConfigError extends Error {}
+export const MAX_INPUT_BYTES = 1048576;
+export const DEFAULT_LIMITS = Object.freeze({
+  maxSteps: 128, maxDecisions: 96, maxDependencies: 16,
+  maxEvidenceCodes: 6, timeoutMs: 2000,
+});
 
 const RULE_SEVERITY = Object.freeze({
-  'cutover-ambiguous': 'warning',
+  'requirements-invalid': 'warning',
+  'requirements-empty': 'warning',
+  'step-unsupported': 'warning',
+  'step-duplicate': 'warning',
+  'owner-missing': 'warning',
+  'evidence-unsupported': 'warning',
+  'destructive-underdeclared': 'warning',
+  'decision-invalid': 'warning',
+  'decision-duplicate': 'warning',
+  'decision-missing': 'warning',
+  'decision-rejected': 'error',
   'dependency-unresolved': 'warning',
   'dependency-cycle': 'warning',
-  'decision-missing': 'warning',
-  'decision-duplicate': 'warning',
-  'decision-rejected': 'error',
+  'cutover-ambiguous': 'warning',
+  'limit-exceeded': 'warning',
+  'clock-invalid': 'warning',
+  'input-unreadable': 'warning',
+  'input-invalid': 'warning',
+  'path-outside-root': 'warning',
+  'input-alias-unsupported': 'warning',
 });
 const byCodeUnit = (a, b) => a === b ? 0 : a < b ? -1 : 1;
+const safePath = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]+$/u;
+export const isSafePath = value => typeof value === 'string' && value.length <= 256 && safePath.test(value) &&
+  !value.split('/').some(part => !part || part === '.');
+
+function checkedLimits(limits) {
+  if (!limits || typeof limits !== 'object' || Array.isArray(limits)) throw new ConfigError('Invalid limits.');
+  for (const [key, value] of Object.entries(limits)) {
+    if (!(key in DEFAULT_LIMITS) || !Number.isSafeInteger(value) || value < 1 || value > DEFAULT_LIMITS[key]) {
+      throw new ConfigError('Invalid limit.');
+    }
+  }
+  return { ...DEFAULT_LIMITS, ...limits };
+}
+
+export function incompleteInput(file, ruleId, pointer = '') {
+  if (!isSafePath(file) || !['input-unreadable', 'input-invalid', 'path-outside-root',
+    'input-alias-unsupported', 'limit-exceeded'].includes(ruleId)) throw new ConfigError('Invalid input report.');
+  const message = {
+    'input-unreadable': 'Named requirements could not be read or decoded.',
+    'input-invalid': 'Named requirements are not supported JSON.',
+    'path-outside-root': 'Named requirements resolve outside the declared root.',
+    'input-alias-unsupported': 'Named requirements are an alias with ambiguous provenance.',
+    'limit-exceeded': 'Named requirements exceed the byte limit.',
+  }[ruleId];
+  return { schemaVersion: '1', tool: TOOL_ID, status: 'incomplete',
+    summary: { checked: 0, errors: 0, warnings: 1, steps: 0, decisions: 0, cutovers: 0 },
+    findings: [{ ruleId, severity: RULE_SEVERITY[ruleId], message,
+      location: { file, ...(pointer ? { pointer } : {}) } }], plan: [] };
+}
 
 export function generatePlan(document, { now = Date.now, file = 'input.json', limits = {} } = {}) {
-  void now;
-  void limits;
+  if (typeof now !== 'function' || !isSafePath(file)) throw new ConfigError('Invalid clock or source label.');
+  const bounds = checkedLimits(limits);
   const findings = [];
   let incomplete = false;
   const add = (ruleId, pointer, message) => {
@@ -22,90 +72,114 @@ export function generatePlan(document, { now = Date.now, file = 'input.json', li
     findings.push({ ruleId, severity, message, location: { file, pointer } });
     if (severity === 'warning') incomplete = true;
   };
-  const steps = document.steps;
-  const decisions = document.decisions;
-  const decisionByStep = new Map();
-  const seenRecords = new Set();
-  for (const [index, item] of decisions.entries()) {
-    if (decisionByStep.has(item.stepId)) {
-      add('decision-duplicate', `/decisions/${index}/stepId`, 'More than one review record targets the same step.');
-    } else decisionByStep.set(item.stepId, index);
-    if (seenRecords.has(item.recordId)) {
-      add('decision-duplicate', `/decisions/${index}/recordId`, 'Review record identity is duplicated.');
-    } else seenRecords.add(item.recordId);
-  }
+  let start;
+  let last;
+  try {
+    start = now();
+    if (!Number.isFinite(start)) throw Error();
+    last = start;
+  } catch { add('clock-invalid', '/clock', 'Injected clock did not return a finite value.'); }
+  const tick = () => {
+    if (!Number.isFinite(start)) return false;
+    let current;
+    try { current = now(); } catch { current = NaN; }
+    if (!Number.isFinite(current) || current < last) {
+      if (!findings.some(f => f.ruleId === 'clock-invalid')) {
+        add('clock-invalid', '/clock', 'Injected clock is not finite and monotone.');
+      }
+      return false;
+    }
+    last = current;
+    if (current - start > bounds.timeoutMs) {
+      if (!findings.some(f => f.ruleId === 'limit-exceeded' && f.location.pointer === '/limits/timeoutMs')) {
+        add('limit-exceeded', '/limits/timeoutMs', 'Analysis deadline exceeded.');
+      }
+      return false;
+    }
+    return true;
+  };
+  const validated = validateRequirements(document, bounds, add);
+  const { steps, decisions, decisionByStep } = validated;
   for (const [index, item] of steps.entries()) {
-    if (!item.destructive) continue;
+    if (!item || typeof item !== 'object' || item.destructive !== true) continue;
     const decisionIndex = decisionByStep.get(item.id);
     if (decisionIndex === undefined) {
       add('decision-missing', `/steps/${index}`, 'Destructive step has no separate review record.');
-    } else if (decisions[decisionIndex].outcome === 'rejected') {
+    } else if (decisions[decisionIndex]?.outcome === 'rejected') {
       add('decision-rejected', `/decisions/${decisionIndex}/outcome`, 'Export records a rejected destructive step.');
     }
   }
-  const idToIndex = new Map(steps.map((item, index) => [item.id, index]));
-  const outgoing = steps.map(() => new Set());
-  const indegree = steps.map(() => 0);
-  let graphUnknown = false;
-  const edge = (before, after) => {
-    if (!outgoing[before].has(after)) {
-      outgoing[before].add(after);
-      indegree[after]++;
+  let plan = [];
+  let graphUnknown = !validated.valid || !tick();
+  if (!graphUnknown) {
+    const idToIndex = new Map(steps.map((item, index) => [item.id, index]));
+    const outgoing = steps.map(() => new Set());
+    const indegree = steps.map(() => 0);
+    const edge = (before, after) => {
+      if (!outgoing[before].has(after)) {
+        outgoing[before].add(after);
+        indegree[after]++;
+      }
+    };
+    for (const [index, item] of steps.entries()) {
+      for (const dependency of item.dependsOn) {
+        const before = idToIndex.get(dependency);
+        if (before === undefined) {
+          graphUnknown = true;
+          add('dependency-unresolved', `/steps/${index}/dependsOn`, 'Declared dependency is unavailable.');
+        } else edge(before, index);
+      }
     }
-  };
-  for (const [index, item] of steps.entries()) {
-    for (const dependency of item.dependsOn) {
-      const before = idToIndex.get(dependency);
-      if (before === undefined) {
-        graphUnknown = true;
-        add('dependency-unresolved', `/steps/${index}/dependsOn`, 'Declared dependency is unavailable.');
-      } else edge(before, index);
+    const cutovers = steps.map((item, index) => ({ item, index }))
+      .filter(({ item }) => item.kind === 'cutover')
+      .sort((a, b) => Number(a.item.cutoverOrder) - Number(b.item.cutoverOrder));
+    const orders = cutovers.map(({ item }) => item.cutoverOrder);
+    if (orders.some((order, index) => order !== String(index + 1))) {
+      graphUnknown = true;
+      add('cutover-ambiguous', `/steps/${cutovers[0]?.index ?? 0}/cutoverOrder`,
+        'Cutover sequence is missing or duplicated.');
+    } else for (let index = 1; index < cutovers.length; index++) {
+      edge(cutovers[index - 1].index, cutovers[index].index);
     }
+    const ordered = [];
+    const used = new Set();
+    while (ordered.length < steps.length && tick()) {
+      const next = indegree.findIndex((count, index) => count === 0 && !used.has(index));
+      if (next === -1) break;
+      used.add(next);
+      ordered.push(next);
+      for (const after of outgoing[next]) indegree[after]--;
+    }
+    if (ordered.length !== steps.length && !findings.some(f => f.ruleId === 'clock-invalid' ||
+      (f.ruleId === 'limit-exceeded' && f.location.pointer === '/limits/timeoutMs'))) {
+      graphUnknown = true;
+      if (cutovers.length > 1) add('cutover-ambiguous', `/steps/${cutovers[0].index}/cutoverOrder`,
+        'Cutover sequence contradicts the dependency graph.');
+      else add('dependency-cycle', '/steps', 'Declared dependencies do not form a sequence.');
+    }
+    if (ordered.length !== steps.length) graphUnknown = true;
+    if (!graphUnknown) plan = ordered.map(index => {
+      const item = steps[index];
+      const decisionIndex = decisionByStep.get(item.id);
+      return { stepOrdinal: index + 1, sourcePointer: `/steps/${index}`, kind: item.kind,
+        dependsOnOrdinals: item.dependsOn.map(id => idToIndex.get(id) + 1).sort((a, b) => a - b),
+        ownerPointer: `/steps/${index}/owner`, compatibility: item.compatibility,
+        rollback: item.rollback, checkpoint: item.checkpoint, evidenceNeeds: item.evidenceNeeds,
+        destructive: item.destructive, cutoverOrder: item.cutoverOrder,
+        decision: item.destructive ? decisionIndex === undefined ? 'missing'
+          : `recorded-${decisions[decisionIndex].outcome}` : 'not-required',
+        decisionPointer: decisionIndex === undefined ? null : `/decisions/${decisionIndex}` };
+    });
   }
-  const cutovers = steps.map((item, index) => ({ item, index }))
-    .filter(({ item }) => item.kind === 'cutover')
-    .sort((a, b) => Number(a.item.cutoverOrder) - Number(b.item.cutoverOrder));
-  const orders = cutovers.map(({ item }) => item.cutoverOrder);
-  if (orders.some((order, index) => order !== String(index + 1))) {
-    graphUnknown = true;
-    add('cutover-ambiguous', `/steps/${cutovers[0]?.index ?? 0}/cutoverOrder`,
-      'Cutover sequence is missing, duplicated or unsupported.');
-  } else for (let index = 1; index < cutovers.length; index++) {
-    edge(cutovers[index - 1].index, cutovers[index].index);
-  }
-  const ordered = [];
-  const used = new Set();
-  while (ordered.length < steps.length) {
-    const next = indegree.findIndex((count, index) => count === 0 && !used.has(index));
-    if (next === -1) break;
-    used.add(next);
-    ordered.push(next);
-    for (const after of outgoing[next]) indegree[after]--;
-  }
-  if (ordered.length !== steps.length) {
-    graphUnknown = true;
-    if (cutovers.length > 1) add('cutover-ambiguous', `/steps/${cutovers[0].index}/cutoverOrder`,
-      'Cutover sequence contradicts the dependency graph.');
-    else add('dependency-cycle', '/steps', 'Declared dependencies do not form a sequence.');
-  }
-  const plan = graphUnknown ? [] : ordered.map(index => {
-    const item = steps[index];
-    const decisionIndex = decisionByStep.get(item.id);
-    return { stepOrdinal: index + 1, sourcePointer: `/steps/${index}`, kind: item.kind,
-      dependsOnOrdinals: item.dependsOn.map(id => idToIndex.get(id) + 1).sort((a, b) => a - b),
-      ownerPointer: `/steps/${index}/owner`, compatibility: item.compatibility,
-      rollback: item.rollback, checkpoint: item.checkpoint, evidenceNeeds: item.evidenceNeeds,
-      destructive: item.destructive, cutoverOrder: item.cutoverOrder,
-      decision: item.destructive ? decisionIndex === undefined ? 'missing'
-        : `recorded-${decisions[decisionIndex].outcome}` : 'not-required',
-      decisionPointer: decisionIndex === undefined ? null : `/decisions/${decisionIndex}` };
-  });
+  if (!tick()) plan = [];
   findings.sort((a, b) => byCodeUnit(a.location.file, b.location.file) ||
     byCodeUnit(a.location.pointer, b.location.pointer) || byCodeUnit(a.ruleId, b.ruleId));
   const errors = findings.filter(finding => finding.severity === 'error').length;
   const warnings = findings.filter(finding => finding.severity === 'warning').length;
   return { schemaVersion: '1', tool: TOOL_ID, status: incomplete ? 'incomplete' : errors ? 'fail' : 'pass',
-    summary: { checked: steps.length, errors, warnings,
-      steps: steps.length, decisions: document.decisions.length, cutovers: cutovers.length },
+    summary: { checked: validated.checked, errors, warnings,
+      steps: Array.isArray(document?.steps) ? document.steps.length : 0,
+      decisions: Array.isArray(document?.decisions) ? document.decisions.length : 0,
+      cutovers: steps.filter(item => item?.kind === 'cutover').length },
     findings, plan };
 }
