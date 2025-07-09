@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1",
+  "steps": [
+    {
+      "id": "preflight", "kind": "prepare", "owner": "platformRole", "dependsOn": [],
+      "compatibility": "not-applicable", "rollback": "not-required", "checkpoint": "after",
+      "evidenceNeeds": ["operator-review"], "destructive": false, "cutoverOrder": null
+    },
+    {
+      "id": "switch", "kind": "cutover", "owner": "platformRole", "dependsOn": ["preflight"],
+      "compatibility": "dual-run", "rollback": "reverse-switch", "checkpoint": "before-and-after",
+      "evidenceNeeds": ["backup", "metric-baseline"], "destructive": true, "cutoverOrder": "1"
+    }
+  ],
+  "decisions": [{ "stepId": "switch", "recordId": "reviewOne", "reviewerRole": "changeReviewer", "outcome": "approved" }]
+}

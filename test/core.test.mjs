@@ -151,6 +151,90 @@ test('unsupported decision outcome cannot satisfy a destructive review', () => {
   assert.equal(JSON.stringify(report).includes('SYNTHETIC_SECRET_CANARY'), false);
 });
 
+test('missing compatibility, rollback, checkpoint or evidence never satisfies a step', () => {
+  const cases = [
+    ['compatibility', 'step-unsupported'],
+    ['rollback', 'step-unsupported'],
+    ['checkpoint', 'step-unsupported'],
+    ['evidenceNeeds', 'evidence-unsupported'],
+  ];
+  for (const [field, ruleId] of cases) {
+    const document = clean();
+    delete document.steps[0][field];
+    const report = generatePlan(document, { now: () => 0 });
+    assert.equal(report.status, 'incomplete', field);
+    assert.deepEqual(report.plan, [], field);
+    assert.ok(report.findings.some(f => f.ruleId === ruleId && f.location.pointer === `/steps/0/${field}`), field);
+  }
+  assert.equal(generatePlan(clean(), { now: () => 0 }).status, 'pass');
+});
+
+test('destructive rollback and checkpoint assertions cannot be weakened', () => {
+  const approved = { schemaVersion: '1', steps: [cutover('first', '1')],
+    decisions: [decision('first', 'reviewA')] };
+  assert.equal(generatePlan(approved, { now: () => 0 }).status, 'pass');
+  for (const change of [{ rollback: 'not-required' }, { checkpoint: 'after' }]) {
+    const document = structuredClone(approved);
+    Object.assign(document.steps[0], change);
+    const report = generatePlan(document, { now: () => 0 });
+    assert.equal(report.status, 'incomplete');
+    assert.ok(report.findings.some(f => f.ruleId === 'step-unsupported' && f.location.pointer === '/steps/0'));
+  }
+});
+
+test('missing dependency on the index side and a dependency cycle never assert a plan', () => {
+  const document = { schemaVersion: '1', steps: [step({ id: 'first' }),
+    step({ id: 'second', dependsOn: ['first'] })], decisions: [] };
+  let report = generatePlan(document, { now: () => 0 });
+  assert.equal(report.status, 'pass');
+  assert.deepEqual(report.plan.map(row => row.stepOrdinal), [1, 2]);
+  document.steps[1].dependsOn = ['missingTarget'];
+  report = generatePlan(document, { now: () => 0 });
+  assert.equal(report.status, 'incomplete');
+  assert.deepEqual(report.plan, []);
+  assert.ok(report.findings.some(f => f.ruleId === 'dependency-unresolved' && f.location.pointer === '/steps/1/dependsOn'));
+  document.steps[1].dependsOn = ['first'];
+  document.steps[0].dependsOn = ['second'];
+  report = generatePlan(document, { now: () => 0 });
+  assert.equal(report.status, 'incomplete');
+  assert.ok(report.findings.some(f => f.ruleId === 'dependency-cycle'));
+});
+
+test('duplicate step identity and unknown decision target remain incomplete', () => {
+  const duplicate = { schemaVersion: '1', steps: [step({ id: 'first' }), step({ id: 'first' })], decisions: [] };
+  let report = generatePlan(duplicate, { now: () => 0 });
+  assert.equal(report.status, 'incomplete');
+  assert.ok(report.findings.some(f => f.ruleId === 'step-duplicate' && f.location.pointer === '/steps/1/id'));
+  const decisionTarget = clean();
+  decisionTarget.decisions = [decision('SYNTHETIC_SECRET_CANARY', 'reviewA')];
+  report = generatePlan(decisionTarget, { now: () => 0 });
+  assert.equal(report.status, 'incomplete');
+  assert.ok(report.findings.some(f => f.ruleId === 'decision-invalid' && f.location.pointer === '/decisions/0/stepId'));
+  assert.equal(JSON.stringify(report).includes('SYNTHETIC_SECRET_CANARY'), false);
+});
+
+test('unknown limit configuration is rejected, while an exact lowered bound stays legal', () => {
+  const document = clean();
+  assert.equal(generatePlan(document, { now: () => 0, limits: { maxSteps: 1 } }).status, 'pass');
+  document.steps.push(step({ id: 'second' }));
+  const report = generatePlan(document, { now: () => 0, limits: { maxSteps: 1 } });
+  assert.equal(report.status, 'incomplete');
+  assert.ok(report.findings.some(f => f.location.pointer === '/limits/maxSteps'));
+  assert.throws(() => generatePlan(clean(), { now: () => 0, limits: { maxStepps: 1 } }), /Invalid limit/u);
+});
+
+test('a library input accessor that throws is incomplete without leaking its exception', () => {
+  const document = clean();
+  Object.defineProperty(document.steps[0], 'owner', {
+    enumerable: true, get() { throw Error('SYNTHETIC_SECRET_CANARY'); },
+  });
+  const report = generatePlan(document, { now: () => 0 });
+  assert.equal(report.status, 'incomplete');
+  assert.deepEqual(report.plan, []);
+  assert.ok(report.findings.some(f => f.ruleId === 'requirements-invalid'));
+  assert.equal(JSON.stringify(report).includes('SYNTHETIC_SECRET_CANARY'), false);
+});
+
 test('step and decision counts accept N and refuse N plus one', () => {
   const document = clean();
   document.steps = Array.from({ length: 128 }, (_, index) => step({ id: `phase${index}` }));

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1",
+  "steps": [
+    {
+      "id": "switch", "kind": "cutover", "owner": "platformRole", "dependsOn": [],
+      "compatibility": "dual-run", "rollback": "reverse-switch", "checkpoint": "before-and-after",
+      "evidenceNeeds": ["backup", "metric-baseline"], "destructive": true, "cutoverOrder": "1"
+    }
+  ],
+  "decisions": [{ "stepId": "switch", "recordId": "reviewOne", "reviewerRole": "changeReviewer", "outcome": "rejected" }]
+}

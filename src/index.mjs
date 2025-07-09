@@ -98,7 +98,12 @@ export function generatePlan(document, { now = Date.now, file = 'input.json', li
     }
     return true;
   };
-  const validated = validateRequirements(document, bounds, add);
+  let validated;
+  try { validated = validateRequirements(document, bounds, add); }
+  catch {
+    add('requirements-invalid', '/', 'Saved requirements could not be evaluated.');
+    validated = { valid: false, steps: [], decisions: [], decisionByStep: new Map(), checked: 0 };
+  }
   const { steps, decisions, decisionByStep } = validated;
   for (const [index, item] of steps.entries()) {
     if (!item || typeof item !== 'object' || item.destructive !== true) continue;
@@ -176,10 +181,13 @@ export function generatePlan(document, { now = Date.now, file = 'input.json', li
     byCodeUnit(a.location.pointer, b.location.pointer) || byCodeUnit(a.ruleId, b.ruleId));
   const errors = findings.filter(finding => finding.severity === 'error').length;
   const warnings = findings.filter(finding => finding.severity === 'warning').length;
+  const declaredLength = key => {
+    try { return Array.isArray(document?.[key]) ? document[key].length : 0; }
+    catch { return 0; }
+  };
   return { schemaVersion: '1', tool: TOOL_ID, status: incomplete ? 'incomplete' : errors ? 'fail' : 'pass',
     summary: { checked: validated.checked, errors, warnings,
-      steps: Array.isArray(document?.steps) ? document.steps.length : 0,
-      decisions: Array.isArray(document?.decisions) ? document.decisions.length : 0,
+      steps: declaredLength('steps'), decisions: declaredLength('decisions'),
       cutovers: steps.filter(item => item?.kind === 'cutover').length },
     findings, plan };
 }
