@@ -223,6 +223,13 @@ test('unknown limit configuration is rejected, while an exact lowered bound stay
   assert.throws(() => generatePlan(clean(), { now: () => 0, limits: { maxStepps: 1 } }), /Invalid limit/u);
 });
 
+test('an inherited Object property name is not accepted as an analysis limit', () => {
+  assert.equal(generatePlan(clean(), { now: () => 0, limits: { maxSteps: 1 } }).status, 'pass');
+  assert.throws(() => generatePlan(clean(), {
+    now: () => 0, limits: JSON.parse('{"toString":1}'),
+  }), /Invalid limit/u);
+});
+
 test('a library input accessor that throws is incomplete without leaking its exception', () => {
   const document = clean();
   Object.defineProperty(document.steps[0], 'owner', {
