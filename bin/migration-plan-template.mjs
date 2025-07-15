@@ -31,21 +31,21 @@ function reportFor(options) {
   const named = resolve(options.realRoot, file);
   let real;
   try { real = realpathSync(named); }
-  catch { return incompleteInput(file, 'input-unreadable'); }
-  if (!inside(real, options.realRoot)) return incompleteInput(file, 'path-outside-root');
-  if (real !== named) return incompleteInput(file, 'input-alias-unsupported');
+  catch { return incompleteInput('input-unreadable'); }
+  if (!inside(real, options.realRoot)) return incompleteInput('path-outside-root');
+  if (real !== named) return incompleteInput('input-alias-unsupported');
   let bytes;
   try {
     const stats = statSync(real);
-    if (!stats.isFile()) return incompleteInput(file, 'input-unreadable');
-    if (stats.size > MAX_INPUT_BYTES) return incompleteInput(file, 'limit-exceeded', '/limits/maxBytes');
+    if (!stats.isFile()) return incompleteInput('input-unreadable');
+    if (stats.size > MAX_INPUT_BYTES) return incompleteInput('limit-exceeded', '/limits/maxBytes');
     bytes = readFileSync(real);
-  } catch { return incompleteInput(file, 'input-unreadable'); }
-  if (bytes.length > MAX_INPUT_BYTES) return incompleteInput(file, 'limit-exceeded', '/limits/maxBytes');
+  } catch { return incompleteInput('input-unreadable'); }
+  if (bytes.length > MAX_INPUT_BYTES) return incompleteInput('limit-exceeded', '/limits/maxBytes');
   try {
     const document = parseStrictJson(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-    return generatePlan(document, { file });
-  } catch { return incompleteInput(file, 'input-invalid'); }
+    return generatePlan(document);
+  } catch { return incompleteInput('input-invalid'); }
 }
 
 try {

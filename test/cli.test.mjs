@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -109,4 +109,24 @@ test('filesystem root and repeated identical inputs preserve deterministic outpu
   assert.equal(first.stderr, '');
   assert.equal(first.stdout, second.stdout);
   assert.equal(JSON.parse(first.stdout).status, 'pass');
+});
+
+test('named input paths never enter JSON or human report labels', () => {
+  const root = mkdtempSync(join(tmpdir(), 'migration-label-'));
+  try {
+    const bytes = readFileSync(example('failing') + '/input.json');
+    writeFileSync(join(root, 'input.json'), bytes);
+    writeFileSync(join(root, 'token-SYNTHETIC_SECRET_CANARY.json'), bytes);
+    const ordinary = run('--root', root, '--input', 'input.json');
+    const canary = run('--root', root, '--input', 'token-SYNTHETIC_SECRET_CANARY.json');
+    assert.equal(ordinary.status, 1);
+    assert.equal(canary.status, 1);
+    assert.equal(canary.stdout, ordinary.stdout);
+    assert.equal(JSON.parse(canary.stdout).findings[0].location.file, 'input');
+    assert.equal((canary.stdout + canary.stderr).includes('SYNTHETIC_SECRET_CANARY'), false);
+    const missing = run('--root', root, '--input', 'missing-SYNTHETIC_SECRET_CANARY.json');
+    assert.equal(missing.status, 2);
+    assert.equal(JSON.parse(missing.stdout).findings[0].location.file, 'input');
+    assert.equal((missing.stdout + missing.stderr).includes('SYNTHETIC_SECRET_CANARY'), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

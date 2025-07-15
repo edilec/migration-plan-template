@@ -71,8 +71,9 @@ cyclic sequence is incomplete rather than arbitrarily sorted.
 
 The report's `plan` rows contain source ordinals and pointers, fixed typed
 declarations, dependency ordinals and decision pointers—not opaque step,
-owner or reviewer names, prose, credentials or unkeyed digests. The relative
-named input path appears only as `location.file`. The operator should inspect
+owner or reviewer names, prose, credentials or unkeyed digests. Findings use
+the fixed logical `location.file: "input"` for this one-document run; the
+configured path is used only to read evidence and is never echoed. The operator should inspect
 the source positions before any actual change. Structural or sequencing
 uncertainty leaves `plan` empty; a missing review decision can appear as
 `decision: "missing"` in an otherwise ordered but incomplete plan.

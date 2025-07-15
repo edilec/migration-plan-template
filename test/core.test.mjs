@@ -82,6 +82,19 @@ test('a recorded rejection is a known failure, not an unknown approval', () => {
   assert.equal(report.plan[0].decision, 'recorded-rejected');
 });
 
+test('a caller-supplied source path cannot enter the logical report label', () => {
+  const document = { schemaVersion: '1', steps: [cutover('first', '1')],
+    decisions: [decision('first', 'reviewA', 'rejected')] };
+  const ordinary = generatePlan(document, { now: () => 0 });
+  const opaque = generatePlan(document, { now: () => 0,
+    file: 'token-SYNTHETIC_SECRET_CANARY.json' });
+  assert.equal(ordinary.status, 'fail');
+  assert.equal(opaque.status, 'fail');
+  assert.equal(opaque.findings[0].location.file, 'input');
+  assert.deepEqual(opaque, ordinary);
+  assert.equal(JSON.stringify(opaque).includes('SYNTHETIC_SECRET_CANARY'), false);
+});
+
 test('one review record identity cannot stand in for two destructive decisions', () => {
   const document = { schemaVersion: '1', steps: [cutover('first', '1'), cutover('second', '2')],
     decisions: [decision('first', 'reviewA'), decision('second', 'reviewA')] };

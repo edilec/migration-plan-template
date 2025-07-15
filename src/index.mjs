@@ -1,6 +1,7 @@
 import { validateRequirements } from './validation.mjs';
 
 export const TOOL_ID = 'migration-plan-template';
+const REPORT_FILE = 'input';
 export class ConfigError extends Error {}
 export const MAX_INPUT_BYTES = 1048576;
 export const DEFAULT_LIMITS = Object.freeze({
@@ -45,8 +46,8 @@ function checkedLimits(limits) {
   return { ...DEFAULT_LIMITS, ...limits };
 }
 
-export function incompleteInput(file, ruleId, pointer = '') {
-  if (!isSafePath(file) || !['input-unreadable', 'input-invalid', 'path-outside-root',
+export function incompleteInput(ruleId, pointer = '') {
+  if (!['input-unreadable', 'input-invalid', 'path-outside-root',
     'input-alias-unsupported', 'limit-exceeded'].includes(ruleId)) throw new ConfigError('Invalid input report.');
   const message = {
     'input-unreadable': 'Named requirements could not be read or decoded.',
@@ -58,18 +59,18 @@ export function incompleteInput(file, ruleId, pointer = '') {
   return { schemaVersion: '1', tool: TOOL_ID, status: 'incomplete',
     summary: { checked: 0, errors: 0, warnings: 1, steps: 0, decisions: 0, cutovers: 0 },
     findings: [{ ruleId, severity: RULE_SEVERITY[ruleId], message,
-      location: { file, ...(pointer ? { pointer } : {}) } }], plan: [] };
+      location: { file: REPORT_FILE, ...(pointer ? { pointer } : {}) } }], plan: [] };
 }
 
-export function generatePlan(document, { now = Date.now, file = 'input.json', limits = {} } = {}) {
-  if (typeof now !== 'function' || !isSafePath(file)) throw new ConfigError('Invalid clock or source label.');
+export function generatePlan(document, { now = Date.now, limits = {} } = {}) {
+  if (typeof now !== 'function') throw new ConfigError('Invalid clock.');
   const bounds = checkedLimits(limits);
   const findings = [];
   let incomplete = false;
   const add = (ruleId, pointer, message) => {
     const severity = RULE_SEVERITY[ruleId];
     if (!severity) throw Error('Unknown report rule.');
-    findings.push({ ruleId, severity, message, location: { file, pointer } });
+    findings.push({ ruleId, severity, message, location: { file: REPORT_FILE, pointer } });
     if (severity === 'warning') incomplete = true;
   };
   let start;

@@ -55,7 +55,8 @@ or an unkeyed hash of any of them. Each adjacent cutover order adds a
 sequencing edge to the dependency graph, so independent cutovers exported in
 reverse source order still appear in cutover order. Remaining unconstrained
 ties use original source order. Findings sort by UTF-16 code unit over file,
-pointer and rule ID.
+pointer and rule ID. The one input has a fixed logical `location.file: "input"`;
+the configured path is for reading only and never enters the report.
 
 All cutover steps require distinct, contiguous `cutoverOrder` values 1…K. A
 dependency from an earlier cutover order to a later one, including through
