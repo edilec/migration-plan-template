@@ -81,6 +81,20 @@ test('read confinement rejects a symlink outside the real declared root', () => 
   }
 });
 
+test('an in-root input symlink is an incomplete alias, while its real file passes', () => {
+  const root = mkdtempSync(join(tmpdir(), 'migration-alias-'));
+  try {
+    writeFileSync(join(root, 'real.json'), readFileSync(example('clean') + '/input.json'));
+    symlinkSync('real.json', join(root, 'alias.json'));
+    const real = run('--root', root, '--input', 'real.json');
+    assert.equal(real.status, 0);
+    assert.equal(JSON.parse(real.stdout).status, 'pass');
+    const alias = run('--root', root, '--input', 'alias.json');
+    assert.equal(alias.status, 2);
+    assert.deepEqual(JSON.parse(alias.stdout).findings.map(f => f.ruleId), ['input-alias-unsupported']);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('input byte limit accepts exactly N and refuses N plus one', () => {
   const root = mkdtempSync(join(tmpdir(), 'migration-bytes-'));
   try {
