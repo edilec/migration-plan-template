@@ -109,7 +109,7 @@ export function generatePlan(document, { now = Date.now, limits = {} } = {}) {
   for (const [index, item] of steps.entries()) {
     if (!item || typeof item !== 'object' || item.destructive !== true) continue;
     const decisionIndex = decisionByStep.get(item.id);
-    if (decisionIndex === undefined) {
+    if (decisionIndex === undefined && validated.valid) {
       add('decision-missing', `/steps/${index}`, 'Destructive step has no separate review record.');
     } else if (decisions[decisionIndex]?.outcome === 'rejected') {
       add('decision-rejected', `/decisions/${decisionIndex}/outcome`, 'Export records a rejected destructive step.');

@@ -72,6 +72,23 @@ test('each destructive step requires its own reviewed decision record', () => {
   assert.equal(report.plan[0].decisionPointer, '/decisions/0');
 });
 
+test('an unreadable decision reference cannot prove its destructive step has no review', () => {
+  const document = { schemaVersion: '1', steps: [cutover('switch', '1')],
+    decisions: [decision('switch', 'reviewA')] };
+  assert.equal(generatePlan(document, { now: () => 0 }).status, 'pass');
+  const noRow = { ...document, decisions: [] };
+  assert.ok(generatePlan(noRow, { now: () => 0 }).findings.some(f => f.ruleId === 'decision-missing'));
+  for (const suffix of [' ', String.fromCharCode(0x200e)]) {
+    const unknown = { ...document, decisions: [decision(`switch${suffix}`, 'reviewA')] };
+    const report = generatePlan(unknown, { now: () => 0 });
+    assert.equal(report.status, 'incomplete');
+    assert.deepEqual(report.plan, []);
+    assert.ok(report.findings.some(f => f.ruleId === 'decision-invalid' &&
+      f.location.pointer === '/decisions/0/stepId'));
+    assert.equal(report.findings.some(f => f.ruleId === 'decision-missing'), false);
+  }
+});
+
 test('a recorded rejection is a known failure, not an unknown approval', () => {
   const document = { schemaVersion: '1', steps: [cutover('first', '1')],
     decisions: [decision('first', 'reviewA', 'rejected')] };
