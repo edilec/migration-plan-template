@@ -111,7 +111,7 @@ export function generatePlan(document, { now = Date.now, limits = {} } = {}) {
     const decisionIndex = decisionByStep.get(item.id);
     if (decisionIndex === undefined && validated.valid) {
       add('decision-missing', `/steps/${index}`, 'Destructive step has no separate review record.');
-    } else if (decisions[decisionIndex]?.outcome === 'rejected') {
+    } else if (validated.valid && decisions[decisionIndex]?.outcome === 'rejected') {
       add('decision-rejected', `/decisions/${decisionIndex}/outcome`, 'Export records a rejected destructive step.');
     }
   }

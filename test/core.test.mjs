@@ -99,6 +99,22 @@ test('a recorded rejection is a known failure, not an unknown approval', () => {
   assert.equal(report.plan[0].decision, 'recorded-rejected');
 });
 
+test('conflicting duplicate reviews cannot prove a rejection in either row order', () => {
+  const base = { schemaVersion: '1', steps: [cutover('first', '1')], decisions: [] };
+  for (const outcomes of [['rejected', 'approved'], ['approved', 'rejected']]) {
+    const document = { ...base, decisions: [decision('first', 'reviewA', outcomes[0]),
+      decision('first', 'reviewB', outcomes[1])] };
+    const report = generatePlan(document, { now: () => 0 });
+    assert.equal(report.status, 'incomplete');
+    assert.deepEqual(report.plan, []);
+    assert.ok(report.findings.some(f => f.ruleId === 'decision-duplicate' &&
+      f.location.pointer === '/decisions/1/stepId'));
+    assert.equal(report.findings.some(f => f.ruleId === 'decision-rejected'), false);
+  }
+  const singleRejection = { ...base, decisions: [decision('first', 'reviewA', 'rejected')] };
+  assert.equal(generatePlan(singleRejection, { now: () => 0 }).status, 'fail');
+});
+
 test('a caller-supplied source path cannot enter the logical report label', () => {
   const document = { schemaVersion: '1', steps: [cutover('first', '1')],
     decisions: [decision('first', 'reviewA', 'rejected')] };
