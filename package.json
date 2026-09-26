@@ -1,0 +1,19 @@
+{
+  "name": "migration-plan-template",
+  "version": "0.1.0",
+  "description": "Turn a feature request into a bounded migration plan with checkpoints.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "node --check src/index.mjs && node --check src/validation.mjs && node --check src/json.mjs && node --check bin/migration-plan-template.mjs && node --check support/deny-network.mjs",
+    "test": "node --import ./support/deny-network.mjs --test",
+    "check": "npm run lint && npm test"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/edilec/migration-plan-template"
+  }
+}
